@@ -42,6 +42,8 @@ export const drawHand = (predictions, ctx) => {
       const landmarks = prediction.landmarks;
 
       // Loop through fingers
+
+      // console.log("Fingers: ", Object.keys(fingerJoints));
       for (let j = 0; j < Object.keys(fingerJoints).length; j++) {
         let finger = Object.keys(fingerJoints)[j];
         //  Loop through pairs of joints
@@ -56,13 +58,27 @@ export const drawHand = (predictions, ctx) => {
             landmarks[firstJointIndex][0],
             landmarks[firstJointIndex][1]
           );
+
           ctx.lineTo(
             landmarks[secondJointIndex][0],
             landmarks[secondJointIndex][1]
           );
+          // if (finger === "indexFinger") {
+          //   console.log(
+          //     "indexFinger",
+          //     landmarks[firstJointIndex][0],
+          //     landmarks[firstJointIndex][1]
+          //   );
+          //   console.log(
+          //     "indexFinger",
+          //     landmarks[secondJointIndex][0],
+          //     landmarks[secondJointIndex][1]
+          //   );
+          // }
           ctx.strokeStyle = "plum";
           ctx.lineWidth = 4;
           ctx.stroke();
+          // console.log("Finger: ", finger);
         }
       }
 
