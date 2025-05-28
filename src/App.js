@@ -1,125 +1,136 @@
-// 1. Install dependencies DONE
-// 2. Import dependencies DONE
-// 3. Setup webcam and canvas DONE
-// 4. Define references to those DONE
-// 5. Load handpose DONE
-// 6. Detect function DONE
-// 7. Drawing utilities DONE
-// 8. Draw functions DONE
-
 import React, { useEffect, useRef, useState } from "react";
-// import logo from './logo.svg';
-import * as handpose from "@tensorflow-models/handpose";
-import * as tf from "@tensorflow/tfjs";
 import Webcam from "react-webcam";
+import ThreeFBXScene from "./ThreeFBXScene";
+
+import { drawPose } from "./drawPose"; // Add this at the top
+
 import "./App.css";
-import { drawHand } from "./utilities";
 
 function App() {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
-
   const [deviceId, setDeviceId] = useState(null);
+  const [poseLandmarker, setPoseLandmarker] = useState(null);
+  const [DrawingUtilsClass, setDrawingUtilsClass] = useState(null);
+  const [PoseConnections, setPoseConnections] = useState(null);
+  const [poseLandmarks, setPoseLandmarks] = useState(null);
 
+  const videoWidth = 640;
+  const videoHeight = 480;
+
+  // Load MediaPipe PoseLandmarker
+  useEffect(() => {
+    const loadModel = async () => {
+      const mp = await import(
+        "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
+      );
+      const { DrawingUtils, FilesetResolver, PoseLandmarker } = mp;
+
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+      );
+
+      const landmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+      });
+
+      setPoseLandmarker(landmarker);
+      setDrawingUtilsClass(() => DrawingUtils);
+      setPoseConnections(PoseLandmarker.POSE_CONNECTIONS);
+    };
+
+    loadModel();
+  }, []);
+
+  // Select preferred camera
   useEffect(() => {
     navigator.mediaDevices.enumerateDevices().then((devices) => {
-      const videoDevices = devices.filter(
-        (device) => device.kind === "videoinput"
-      );
-      console.log("Available video devices:", videoDevices);
-
-      // Filter out virtual cameras or specific unwanted labels
+      const videoDevices = devices.filter((d) => d.kind === "videoinput");
       const filtered = videoDevices.filter(
         (d) => !/virtual|redmi/i.test(d.label)
       );
-      const preferred = filtered[0] || videoDevices[0]; // fallback
-      if (preferred) {
-        console.log("Selected camera:", preferred.label);
-        setDeviceId(preferred.deviceId);
-      } else {
-        console.warn("No suitable camera found.");
-      }
+      const preferred = filtered[0] || videoDevices[0];
+      if (preferred) setDeviceId(preferred.deviceId);
     });
   }, []);
 
-  const runHandpose = async () => {
-    const net = await handpose.load();
-    // console.log("Handpose model loaded.");
-    //  Loop and detect hands
-    setInterval(() => {
-      detect(net);
-    }, 100);
-  };
+  // Prediction loop
+  useEffect(() => {
+    let animationFrameId;
 
-  const detect = async (net) => {
-    // Check data is available
-    if (
-      typeof webcamRef.current !== "undefined" &&
-      webcamRef.current !== null &&
-      webcamRef.current.video.readyState === 4
-    ) {
-      // Get Video Properties
-      const video = webcamRef.current.video;
-      const videoWidth = webcamRef.current.video.videoWidth;
-      const videoHeight = webcamRef.current.video.videoHeight;
+    const predict = async () => {
+      if (
+        poseLandmarker &&
+        DrawingUtilsClass &&
+        PoseConnections &&
+        webcamRef.current &&
+        webcamRef.current.video.readyState === 4
+      ) {
+        const video = webcamRef.current.video;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
 
-      // Set video width
-      webcamRef.current.video.width = videoWidth;
-      webcamRef.current.video.height = videoHeight;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
 
-      // Set canvas height and width
-      canvasRef.current.width = videoWidth;
-      canvasRef.current.height = videoHeight;
+        const now = performance.now();
 
-      // Make Detections
-      const hand = await net.estimateHands(video);
-      // console.log(hand);
+        poseLandmarker.detectForVideo(video, now, (result) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          setPoseLandmarks(result.landmarks[0]); // store landmarks for 1st pose
 
-      // Draw mesh
-      const ctx = canvasRef.current.getContext("2d");
-      // if (hand.length > 0) console.log(ctx);
-      drawHand(hand, ctx);
+          drawPose(ctx, result.landmarks, DrawingUtilsClass, PoseConnections);
+        });
+      }
+
+      animationFrameId = requestAnimationFrame(predict);
+    };
+
+    if (poseLandmarker && DrawingUtilsClass && PoseConnections) {
+      predict();
     }
-  };
 
-  runHandpose();
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [poseLandmarker, DrawingUtilsClass, PoseConnections]);
 
   return (
     <div className="App">
       <header className="App-header">
-        <Webcam
-          ref={webcamRef}
-          audio={false}
-          videoConstraints={{
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-          }}
-          style={{
-            position: "absolute",
-            marginLeft: "auto",
-            marginRight: "auto",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            zIndex: 9,
-            width: 640,
-            height: 480,
-          }}
-        />
+        <div className="video-container">
+          <Webcam
+            ref={webcamRef}
+            audio={false}
+            videoConstraints={{
+              deviceId: deviceId ? { exact: deviceId } : undefined,
+            }}
+            style={{
+              position: "absolute",
+              width: "100%",
+              height: "100%",
+              zIndex: 1,
+            }}
+          />
+          <canvas
+            ref={canvasRef}
+            style={{
+              position: "absolute",
+              width: "100%",
+              height: "100%",
+              zIndex: 2,
+              pointerEvents: "none",
+            }}
+          />
+        </div>
 
-        <canvas
-          ref={canvasRef}
-          style={{
-            position: "absolute",
-            marginLeft: "auto",
-            marginRight: "auto",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            zIndex: 9, // this was zindex should be zIndex worked 2 hours to find this
-            width: 640,
-            height: 480,
-          }}
-        />
+        <div className="three-container">
+          <ThreeFBXScene landmarks={poseLandmarks} />
+        </div>
       </header>
     </div>
   );
